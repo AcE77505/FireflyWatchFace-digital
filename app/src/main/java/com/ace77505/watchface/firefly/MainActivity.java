@@ -4,24 +4,22 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
-import android.os.Vibrator;
 import android.text.InputFilter;
 import android.text.InputType;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.BaseAdapter;
-import android.widget.Button;
+import android.widget.CheckBox;
+import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.wear.widget.WearableLinearLayoutManager;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 import androidx.wear.widget.WearableRecyclerView;
 
 public class MainActivity extends Activity {
@@ -38,8 +36,11 @@ public class MainActivity extends Activity {
         prefsManager = new PreferencesManager(this);
 
         recyclerView = findViewById(R.id.recycler_view);
-        recyclerView.setEdgeItemsCenteringEnabled(true);
-        recyclerView.setLayoutManager(new WearableLinearLayoutManager(this));
+
+        // 完全禁用弯曲特效 - 使用标准的 LinearLayoutManager
+        recyclerView.setEdgeItemsCenteringEnabled(false);
+        recyclerView.setHasFixedSize(true);
+        recyclerView.setLayoutManager(new LinearLayoutManager(this));
 
         adapter = new SettingsAdapter();
         recyclerView.setAdapter(adapter);
@@ -47,7 +48,15 @@ public class MainActivity extends Activity {
 
     private class SettingsAdapter extends WearableRecyclerView.Adapter<SettingsAdapter.ViewHolder> {
 
-        private final String[] settings = {"时间颜色", "日期颜色"};
+        private final String[] settings = {"时间颜色", "日期颜色", "电量环"};
+        private final int TYPE_COLOR = 0;
+        private final int TYPE_SWITCH = 1;
+
+        @Override
+        public int getItemViewType(int position) {
+            if (position == 2) return TYPE_SWITCH;
+            return TYPE_COLOR;
+        }
 
         @Override
         public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
@@ -58,17 +67,76 @@ public class MainActivity extends Activity {
 
         @Override
         public void onBindViewHolder(ViewHolder holder, int position) {
-            String setting = settings[position];
-            holder.settingName.setText(setting);
+            // 设置名称 - 直接使用position是安全的，因为这是立即使用
+            holder.settingName.setText(settings[position]);
 
+            if (getItemViewType(position) == TYPE_SWITCH) {
+                // 电量环开关
+                setupSwitchItem(holder);
+            } else {
+                // 颜色选项
+                setupColorItem(holder, position);
+            }
+        }
+
+        private void setupSwitchItem(ViewHolder holder) {
+            holder.colorPreview.setVisibility(View.GONE);
+            holder.switchButton.setVisibility(View.VISIBLE);
+
+            // 设置开关状态
+            holder.switchButton.setChecked(prefsManager.isBatteryRingEnabled());
+
+            // 移除之前的监听器
+            holder.switchButton.setOnCheckedChangeListener(null);
+
+            // 设置开关监听器
+            holder.switchButton.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+                @Override
+                public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                    // 直接保存设置，不需要位置信息
+                    prefsManager.setBatteryRingEnabled(isChecked);
+                    // 发送广播通知表盘更新
+                    Intent intent = new Intent(PreferencesManager.PREF_CHANGED_ACTION);
+                    sendBroadcast(intent);
+                    Toast.makeText(MainActivity.this,
+                            "电量环已" + (isChecked ? "开启" : "关闭"), Toast.LENGTH_SHORT).show();
+                }
+            });
+
+            // 点击整个项切换开关
+            holder.itemView.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    int pos = holder.getAdapterPosition();
+                    if (pos != RecyclerView.NO_POSITION && getItemViewType(pos) == TYPE_SWITCH) {
+                        boolean newState = !holder.switchButton.isChecked();
+                        holder.switchButton.setChecked(newState);
+                    }
+                }
+            });
+        }
+
+        private void setupColorItem(ViewHolder holder, int position) {
+            holder.colorPreview.setVisibility(View.VISIBLE);
+            holder.switchButton.setVisibility(View.GONE);
+
+            // 设置颜色预览
             int currentColor = position == 0 ?
                     prefsManager.getTimeColor() : prefsManager.getDateColor();
-
-            // 显示当前颜色的预览
             holder.colorPreview.setBackgroundColor(currentColor);
 
-            holder.itemView.setOnClickListener(v -> {
-                showColorPickerDialog(position == 0 ? "时间颜色" : "日期颜色", position);
+            // 点击事件
+            holder.itemView.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    int pos = holder.getAdapterPosition();
+                    if (pos != RecyclerView.NO_POSITION && getItemViewType(pos) == TYPE_COLOR) {
+                        showColorPickerDialog(
+                                pos == 0 ? "时间颜色" : "日期颜色",
+                                pos
+                        );
+                    }
+                }
             });
         }
 
@@ -80,11 +148,13 @@ public class MainActivity extends Activity {
         class ViewHolder extends WearableRecyclerView.ViewHolder {
             TextView settingName;
             View colorPreview;
+            CheckBox switchButton;
 
             ViewHolder(View itemView) {
                 super(itemView);
                 settingName = itemView.findViewById(R.id.setting_name);
                 colorPreview = itemView.findViewById(R.id.color_preview);
+                switchButton = itemView.findViewById(R.id.switch_button);
             }
         }
     }
@@ -152,7 +222,6 @@ public class MainActivity extends Activity {
         // 发送广播通知表盘更新
         Intent intent = new Intent(PreferencesManager.PREF_CHANGED_ACTION);
         sendBroadcast(intent);
-
 
         Toast.makeText(this, "设置已保存", Toast.LENGTH_SHORT).show();
     }
