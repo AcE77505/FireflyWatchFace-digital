@@ -9,6 +9,10 @@ import android.graphics.Paint;
 import android.graphics.Rect;
 import android.os.BatteryManager;
 
+/**
+ * 电量环：优化为接收 PolarCoord 与复用的临时数组以减少分配。
+ * 提供两个 draw 重载：一个使用内部查询（兼容），一个使用外部传入的 batteryLevel（推荐，高性能）。
+ */
 public class BatteryRing {
     private final Context context;
     private final Paint paint;
@@ -33,17 +37,26 @@ public class BatteryRing {
     }
 
     /**
-     * 绘制电量环
-     * @param canvas 画布
-     * @param bounds 表盘边界
+     * 兼容性方法：由内部查询电量并绘制（保留以兼容旧调用）
      */
-    public void draw(Canvas canvas, Rect bounds) {
-        float cx = bounds.exactCenterX();
-        float cy = bounds.exactCenterY();
-        float radius = Math.min(bounds.width(), bounds.height()) * 0.5f;
-
-        // 获取当前电量（0..1）
+    public void draw(Canvas canvas, PolarCoord polar, float[] tmp) {
         float batteryLevel = getBatteryLevel();
+        draw(canvas, polar, tmp, batteryLevel);
+    }
+
+    /**
+     * 高���能绘制：使用外部传入的 batteryLevel（推荐，避免每帧系统查询）
+     * @param canvas 画布
+     * @param polar  复用的极坐标实例
+     * @param tmp    复用的长度至少为2的临时数组（out）
+     * @param batteryLevel 电量（0..1）
+     */
+    public void draw(Canvas canvas, PolarCoord polar, float[] tmp, float batteryLevel) {
+        float cx = polar.getCenterX();
+        float cy = polar.getCenterY();
+        float radius = polar.getMaxRadius();
+
+        // 保证电量在 [0,1]
         batteryLevel = Math.max(0f, Math.min(1f, batteryLevel));
 
         float outerRadius = radius * BATTERY_RING_INSET_RATIO;
@@ -84,13 +97,14 @@ public class BatteryRing {
 
         paint.setStrokeCap(prevCap);
 
-        // 绘制电量环终点燃烧特效
+        // 绘制电量环终点燃烧特效（使用极坐标计算终点位置，输出到 tmp）
         if (batteryLevel > 0f && sweepAngle > 0f) {
-            double endAngleRad = Math.toRadians(startAngle + sweepAngle);
-            float dotX = cx + (float) Math.cos(endAngleRad) * ringCenterRadius;
-            float dotY = cy + (float) Math.sin(endAngleRad) * ringCenterRadius;
+            float endAngleDeg = startAngle + sweepAngle;
+            polar.toCartesianDegOut(endAngleDeg, ringCenterRadius, tmp);
+            float dotX = tmp[0];
+            float dotY = tmp[1];
 
-            // 使用 FlameEffect 类绘制燃烧特效
+            // 使用 FlameEffect 类绘制燃烧特效（FlameEffect 不再需要改动）
             FlameEffect.draw(canvas, paint, dotX, dotY, radius, batteryLevel);
         }
 

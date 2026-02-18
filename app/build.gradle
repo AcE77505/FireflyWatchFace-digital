@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.application)
-
 }
 
 android {
@@ -15,8 +14,8 @@ android {
         targetSdk 36
         versionCode 1
         versionName "1.0"
-
     }
+
     signingConfigs {
         release {
             enableV1Signing = true
@@ -55,32 +54,22 @@ android {
             }
         }
     }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_11
         targetCompatibility JavaVersion.VERSION_11
     }
 
     useLibrary('wear-sdk')
+
+    aaptOptions {
+        noCompress "webp"
+    }
 }
 
 dependencies {
-//    implementation libs.play.services.wearable
-//    implementation platform(libs.compose.bom)
-//    implementation libs.ui
-//    implementation libs.ui.graphics
-//    implementation libs.ui.tooling.preview
-//    implementation libs.compose.material
-//    implementation libs.compose.foundation
-//    implementation libs.wear.tooling.preview
-//    implementation libs.activity.compose
-//    implementation libs.core.splashscreen
     implementation "androidx.wear.watchface:watchface:1.1.1"
     implementation "androidx.wear.watchface:watchface-complications-rendering:1.1.1"
     implementation "androidx.wear.watchface:watchface-complications-data-source:1.1.1"
     implementation libs.androidx.wear
-
-//    androidTestImplementation platform(libs.compose.bom)
-//    androidTestImplementation libs.ui.test.junit4
-//    debugImplementation libs.ui.tooling
-//    debugImplementation libs.ui.test.manifest
 }
