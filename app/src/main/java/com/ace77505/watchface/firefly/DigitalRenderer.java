@@ -29,38 +29,52 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 
 /**
- * DigitalRenderer：性能优化版本（加载 assets 优先使用 openFd）
- * - 复用 PolarCoord（update）避免每帧 new
- * - toCartesian*Out + coordTmp 避免分配 PointF
- * - 缓存并重用 scaled background（只在 bounds 尺寸变化时缩放）
- * - 优先尝试使用 AssetManager.openFd(...) 加载未压缩的 asset（可更高效），若失败再回退到 open(...)
- * - 注册 ACTION_BATTERY_CHANGED 广播更新 cachedBatteryLevel（避免每帧系统查询）
- * - 使用 BatteryRing.draw(..., batteryLevel) 接口避免重复查询
+ * DigitalRenderer - 完整版本
+ *
+ * 功能要点：
+ * - 使用 PreferencesManager 中的扩展偏好（方向/距离/大小/颜色）来定位并缩放时间、日期、以及电池文字。
+ * - 电量环与电池文字的颜色分离：从 prefs 读取 battery ring color (getBatteryRingColor())
+ *   与 battery element color (getBatteryColor()) 并分别应用。
+ * - 复用 PolarCoord 与临时数组 coordTmp 避免每帧分配。
+ * - 缓存并按需缩放 backgroundBitmap。
+ * - 通过注册 ACTION_BATTERY_CHANGED 的广播缓存电量（cachedBatteryLevel），避免每帧查询系统。
+ * - 在 Preferences 变化时（PREF_CHANGED_ACTION）重新加载偏好并 invalidate()。
+ *
+ * 注意：
+ * - 这个类依赖 PreferencesManager 已扩展的方法：
+ *     getTimeDirection(), getTimeDistance(), getTimeSize()
+ *     getDateDirection(), getDateDistance(), getDateSize()
+ *     getBatteryDirection(), getBatteryDistance(), getBatterySize()
+ *     getBatteryColor()            // 电池元素颜色（文本）
+ *     getBatteryRingColor()        // 电量环颜色（环）
+ *   如果 PreferencesManager 尚未包含 getBatteryRingColor()，请添加对应的键与 getter/setter。
  */
 public class DigitalRenderer extends Renderer.CanvasRenderer {
+    // 背景位图与缓存缩放图
     private Bitmap backgroundBitmap;
     private Bitmap cachedScaledBackground = null;
     private int cachedBackgroundWidth = -1;
     private int cachedBackgroundHeight = -1;
 
+    // 画笔
     private final Paint timePaint = new Paint();
     private final Paint datePaint = new Paint();
-    private final Paint batteryTextPaint = new Paint(); // 数字电池画笔
+    private final Paint batteryTextPaint = new Paint();
 
-    // 电量环对象
+    // 电量环
     private final BatteryRing batteryRing;
 
-    // 设置管理器
+    // 偏好/上下文/接收器
     private final PreferencesManager prefsManager;
     private final Context context;
     private final BroadcastReceiver settingsReceiver;
 
-    // 当前颜色值
+    // 当前颜色值与开关
     private int timeColor = Color.BLACK;
     private int dateColor = Color.BLACK;
-    private boolean batteryRingEnabled = true; // 电量环开关状态
+    private boolean batteryRingEnabled = true;
 
-    // 时间格式化
+    // 时间/日期格式
     private final DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm");
     private final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("EEE, MMM d");
 
@@ -68,10 +82,10 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
     private final PolarCoord polar = new PolarCoord(0f, 0f, 1f);
     private final float[] coordTmp = new float[2];
 
-    // 缓存电量（由广播接收器更新），volatile 保证跨线程更新安全
+    // 缓存电量（由广播更新）
     private volatile float cachedBatteryLevel = 0.75f;
 
-    // 电量广播接收器（只注册一次）
+    // 电量广播接收器（仅一次注册）
     private final BroadcastReceiver batteryReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context ctx, Intent intent) {
@@ -84,6 +98,23 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
             }
         }
     };
+
+    // 元素参数（从 prefs 读取并缓存）
+    private float timeDirDeg;
+    private float timeDistRatio;
+    private float timeSizeScale;
+
+    private float dateDirDeg;
+    private float dateDistRatio;
+    private float dateSizeScale;
+
+    private float batteryDirDeg;
+    private float batteryDistRatio;
+    private float batterySizeScale;
+
+    // 颜色分离：电池文字颜色 (element) 与 电量环颜色 (ring)
+    private int batteryElementColor = Color.WHITE;
+    private int batteryRingColor = Color.parseColor("#FFA04A"); // 默认
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     public DigitalRenderer(
@@ -103,34 +134,37 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
 
         this.context = context.getApplicationContext();
 
-        // 初始化设置管理器
+        // 初始化 prefs 管理器
         prefsManager = new PreferencesManager(this.context);
-
-        // 加载保存的颜色和开关状态
-        timeColor = prefsManager.getTimeColor();
-        dateColor = prefsManager.getDateColor();
-        batteryRingEnabled = prefsManager.isBatteryRingEnabled();
 
         // 初始化画笔
         initPaints();
 
-        // 加载背景图片（优先尝试 openFd）
+        // 加载背景图（优先使用 openFd）
         loadBackgroundBitmap(this.context);
 
-        // 初始化电量环
+        // 初始化电量环实例
         this.batteryRing = new BatteryRing(this.context);
 
-        // 注册设置变化监听
+        // 加载基础设置（颜色、开关）
+        timeColor = prefsManager.getTimeColor();
+        dateColor = prefsManager.getDateColor();
+        batteryRingEnabled = prefsManager.isBatteryRingEnabled();
+
+        // 加载元素偏好（方向/距离/大小/颜色 等），并把电量环视觉配置应用到 batteryRing 实例
+        loadElementPrefs();
+
+        // 注册设置变化监听：在 prefs 改变时重新读取偏好并触发 invalidate()
         settingsReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context ctx, Intent intent) {
                 if (PreferencesManager.PREF_CHANGED_ACTION.equals(intent.getAction())) {
-                    // 更新颜色值和开关状态
+                    // 重新加载颜色、开关、元素偏好
                     timeColor = prefsManager.getTimeColor();
                     dateColor = prefsManager.getDateColor();
                     batteryRingEnabled = prefsManager.isBatteryRingEnabled();
-                    // 刷新表盘
-                    invalidate();
+                    loadElementPrefs();
+                    invalidate(); // 请求重绘
                 }
             }
         };
@@ -152,7 +186,7 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
     }
 
     private void initPaints() {
-        // 时间画笔 - 大号、粗体
+        // 时间画笔
         timePaint.setAntiAlias(true);
         timePaint.setDither(true);
         timePaint.setColor(timeColor);
@@ -160,7 +194,7 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
         timePaint.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         timePaint.setStyle(Paint.Style.FILL);
 
-        // 日期画笔 - 中号、普通
+        // 日期画笔
         datePaint.setAntiAlias(true);
         datePaint.setDither(true);
         datePaint.setColor(dateColor);
@@ -168,24 +202,22 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
         datePaint.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
         datePaint.setStyle(Paint.Style.FILL);
 
-        // 数字电池画笔 - 小号、粗体
+        // 数字电池画笔
         batteryTextPaint.setAntiAlias(true);
         batteryTextPaint.setDither(true);
-        batteryTextPaint.setColor(Color.WHITE); // 初始颜色
+        batteryTextPaint.setColor(batteryElementColor);
         batteryTextPaint.setTextAlign(Paint.Align.CENTER);
         batteryTextPaint.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         batteryTextPaint.setStyle(Paint.Style.FILL);
     }
 
     /**
-     * 加载背景图片：优先尝试 AssetManager.openFd（需要 asset 在 APK 中未压缩），
-     * 若 openFd 或读取失败则回退到 assets.open(...) 流式加载。
+     * 从 assets 加载背景图片（openFd 优先）
      */
     private void loadBackgroundBitmap(Context context) {
         final String assetName = "119655138_sq.webp";
         backgroundBitmap = null;
 
-        // 尝试 openFd -> createInputStream -> decodeStream（兼容且稳健）
         try {
             try (AssetFileDescriptor afd = context.getAssets().openFd(assetName)) {
                 try (InputStream is = afd.createInputStream()) {
@@ -193,7 +225,6 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
                 }
             }
         } catch (IOException e) {
-            // openFd 不可用或读取失败（通常 asset 被压缩），回退到流式加载
             try (InputStream is = context.getAssets().open(assetName)) {
                 backgroundBitmap = BitmapFactory.decodeStream(is);
             } catch (IOException ex) {
@@ -203,26 +234,71 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
         }
     }
 
+    /**
+     * 从 prefs 读取并缓存元素参数；同时把可视化配置应用到 batteryRing 实例。
+     *
+     * 说明：这里将电量环颜色与电池文字颜色分离：
+     * - batteryRingColor 来自 prefsManager.getBatteryRingColor()
+     * - batteryElementColor 来自 prefsManager.getBatteryColor()
+     *
+     * 电量环的 inset 与 厚度缩放仍沿用 battery element 的 distance/size 偏好（便于快速起步）；
+     * 若你希望分别独立控制它们，可以在 PreferencesManager 再新增键并在此读取。
+     */
+    private void loadElementPrefs() {
+        // 时间
+        timeDirDeg = prefsManager.getTimeDirection();
+        timeDistRatio = prefsManager.getTimeDistance();
+        timeSizeScale = prefsManager.getTimeSize();
+
+        // 日期
+        dateDirDeg = prefsManager.getDateDirection();
+        dateDistRatio = prefsManager.getDateDistance();
+        dateSizeScale = prefsManager.getDateSize();
+
+        // 电池（元素）
+        batteryDirDeg = prefsManager.getBatteryDirection();
+        batteryDistRatio = prefsManager.getBatteryDistance();
+        batterySizeScale = prefsManager.getBatterySize();
+
+        // 颜色（分离）
+        batteryElementColor = prefsManager.getBatteryColor();
+        // 需要 PreferencesManager 提供此方法；若不存在，请新增对应键值与 getter/setter
+        try {
+            batteryRingColor = prefsManager.getBatteryRingColor();
+        } catch (Exception e) {
+            // 兼容性：若 prefsManager 尚未实现 getBatteryRingColor(), 使用默认 ring color
+            batteryRingColor = Color.parseColor("#FFA04A");
+        }
+
+        // 将视觉参数应用到 batteryRing 实例：
+        // 这里把 batteryDistRatio 用作 insetRatio（0..1），batterySizeScale 用作厚度缩放
+        batteryRing.setConfig(
+                /* insetRatio = */ Math.max(0.1f, Math.min(1.0f, batteryDistRatio <= 0f ? 0.96f : batteryDistRatio)),
+                /* sizeScale = */ Math.max(0.1f, batterySizeScale),
+                /* color = */ batteryRingColor
+        );
+    }
+
     @Override
     public void render(@NonNull Canvas canvas, @NonNull Rect bounds, @NonNull ZonedDateTime dateTime) {
-        // 更新复用 polar（不 new）
+        // 更新复用 polar
         float cx = bounds.exactCenterX();
         float cy = bounds.exactCenterY();
         float radius = Math.min(bounds.width(), bounds.height()) * 0.5f;
         polar.update(cx, cy, radius);
 
-        // 绘制背景（只在尺寸变化时重新缩放并缓存）
+        // 绘制背景（缓存缩���）
         drawBackgroundCached(canvas, bounds);
 
-        // 根据开关状态绘制电量环，使用 cachedBatteryLevel：避免每帧系统查询
+        // 绘制电量环（如果已启用）
         if (batteryRingEnabled) {
             batteryRing.draw(canvas, polar, coordTmp, cachedBatteryLevel);
         }
 
-        // 绘制数字时间
+        // 绘制时间/日期（使用 element prefs）
         drawDigitalTime(canvas, polar, dateTime);
 
-        // 绘制数字电池（使用 cachedBatteryLevel）
+        // 绘制电池文本（使用 element prefs）
         drawBatteryText(canvas, polar);
     }
 
@@ -232,7 +308,6 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
                     cachedBackgroundWidth != bounds.width() ||
                     cachedBackgroundHeight != bounds.height()) {
 
-                // 仅在尺寸变化时重新缩放并替换缓存
                 if (cachedScaledBackground != null && !cachedScaledBackground.isRecycled()) {
                     cachedScaledBackground.recycle();
                 }
@@ -244,85 +319,106 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
             }
             canvas.drawBitmap(cachedScaledBackground, bounds.left, bounds.top, null);
         } else {
+            // 备用白底
             canvas.drawColor(Color.WHITE);
         }
     }
 
     private void drawDigitalTime(Canvas canvas, PolarCoord polar, ZonedDateTime dateTime) {
-        // 更新画笔颜色（确保使用最新设置）
+        // 更新画笔颜色
         timePaint.setColor(timeColor);
         datePaint.setColor(dateColor);
 
-        // 计算字体大小（基于表盘尺寸）
-        float timeTextSize = polar.getMaxRadius() * 2f * 0.12f; // 等价于 bounds.height() * 0.12f
-        float dateTextSize = polar.getMaxRadius() * 2f * 0.05f;
+        // 基础字体大小
+        float baseTimeTextSize = polar.getMaxRadius() * 2f * 0.12f;
+        float baseDateTextSize = polar.getMaxRadius() * 2f * 0.05f;
 
-        // 设置时间文字大小
-        timePaint.setTextSize(timeTextSize);
+        // 应用用户配置的大小比例
+        timePaint.setTextSize(baseTimeTextSize * timeSizeScale);
+        datePaint.setTextSize(baseDateTextSize * dateSizeScale);
 
-        // 格式化并绘制时间
+        // 格式化文字
         String timeString = dateTime.format(timeFormatter);
-
-        // 时间：顶端偏上（角度 -90），比例 0.18R
-        polar.toCartesianRatioOut(-90f, 0.18f, coordTmp);
-        float timeX = coordTmp[0];
-        float timeYcenter = coordTmp[1];
-        Paint.FontMetrics timeMetrics = timePaint.getFontMetrics();
-        float timeY = timeYcenter - (timeMetrics.ascent + timeMetrics.descent) / 2f;
-        canvas.drawText(timeString, timeX, timeY, timePaint);
-
-        // 日期
-        datePaint.setTextSize(dateTextSize);
         String dateString = dateTime.format(dateFormatter);
-        Paint.FontMetrics dateMetrics = datePaint.getFontMetrics();
-        polar.toCartesianRatioOut(-90f, 0.30f, coordTmp);
-        float dateX = coordTmp[0];
-        float dateYcenter = coordTmp[1];
-        float dateY = dateYcenter - (dateMetrics.ascent + dateMetrics.descent) / 2f;
-        canvas.drawText(dateString, dateX, dateY, datePaint);
+
+        // 绘制时间
+        if (timeDistRatio <= 0f) {
+            // 距离为 0 -> 居中显示（无视方向）
+            float timeX = polar.getCenterX();
+            float timeY = polar.getCenterY();
+            Paint.FontMetrics timeMetrics = timePaint.getFontMetrics();
+            float drawY = timeY - (timeMetrics.ascent + timeMetrics.descent) / 2f;
+            canvas.drawText(timeString, timeX, drawY, timePaint);
+        } else {
+            // 用户角度定义为：0 = 12 点，顺时针为正
+            float userAngle = normalizeAngle(timeDirDeg);
+            float polarAngle = userAngle - 90f; // 转换为 PolarCoord 约定
+            polar.toCartesianRatioOut(polarAngle, timeDistRatio, coordTmp);
+            float timeX = coordTmp[0];
+            float timeYcenter = coordTmp[1];
+            Paint.FontMetrics timeMetrics = timePaint.getFontMetrics();
+            float timeY = timeYcenter - (timeMetrics.ascent + timeMetrics.descent) / 2f;
+            canvas.drawText(timeString, timeX, timeY, timePaint);
+        }
+
+        // 绘制日期
+        if (dateDistRatio <= 0f) {
+            float dateX = polar.getCenterX();
+            float dateY = polar.getCenterY();
+            Paint.FontMetrics dateMetrics = datePaint.getFontMetrics();
+            float drawY = dateY - (dateMetrics.ascent + dateMetrics.descent) / 2f;
+            canvas.drawText(dateString, dateX, drawY, datePaint);
+        } else {
+            float userAngle = normalizeAngle(dateDirDeg);
+            float polarAngle = userAngle - 90f;
+            polar.toCartesianRatioOut(polarAngle, dateDistRatio, coordTmp);
+            float dateX = coordTmp[0];
+            float dateYcenter = coordTmp[1];
+            Paint.FontMetrics dateMetrics = datePaint.getFontMetrics();
+            float dateY = dateYcenter - (dateMetrics.ascent + dateMetrics.descent) / 2f;
+            canvas.drawText(dateString, dateX, dateY, datePaint);
+        }
     }
 
-    /**
-     * 绘制数字电池（使用 cachedBatteryLevel）
-     */
     private void drawBatteryText(Canvas canvas, PolarCoord polar) {
         float batteryLevel = cachedBatteryLevel;
         String batteryText = Math.round(batteryLevel * 100) + "%";
 
-        // 设置文字大小 - 较小比例
-        float batteryTextSize = polar.getMaxRadius() * 2f * 0.035f;
-        batteryTextPaint.setTextSize(batteryTextSize);
+        float baseBatteryTextSize = polar.getMaxRadius() * 2f * 0.035f;
+        batteryTextPaint.setTextSize(baseBatteryTextSize * batterySizeScale);
 
-        // 根据时间颜色计算文字颜色（简单启发式）
-        batteryTextPaint.setColor(calculateTextColor());
+        // 使用独立的电池元素颜色（文本）
+        batteryTextPaint.setColor(batteryElementColor);
 
-        // 使用极坐标将电池文字放在底部中央（角度 90，接近边缘）
-        polar.toCartesianRatioOut(90f, 0.9f, coordTmp);
-        float batteryX = coordTmp[0];
-        float batteryYcenter = coordTmp[1];
+        if (batteryDistRatio <= 0f) {
+            float batteryX = polar.getCenterX();
+            float batteryYcenter = polar.getCenterY();
+            Paint.FontMetrics bm = batteryTextPaint.getFontMetrics();
+            float batteryY = batteryYcenter - (bm.ascent + bm.descent) / 2f;
+            canvas.drawText(batteryText, batteryX, batteryY, batteryTextPaint);
+        } else {
+            float userAngle = normalizeAngle(batteryDirDeg);
+            float polarAngle = userAngle - 90f;
+            polar.toCartesianRatioOut(polarAngle, batteryDistRatio, coordTmp);
+            float batteryX = coordTmp[0];
+            float batteryYcenter = coordTmp[1];
+            Paint.FontMetrics bm = batteryTextPaint.getFontMetrics();
+            float batteryY = batteryYcenter - (bm.ascent + bm.descent) / 2f;
 
-        // 添加阴影提高可读性
-        batteryTextPaint.setShadowLayer(3, 0, 0, Color.BLACK);
-
-        // 调整基线使文本以 batteryPos 为中心点
-        Paint.FontMetrics bm = batteryTextPaint.getFontMetrics();
-        float batteryY = batteryYcenter - (bm.ascent + bm.descent) / 2f;
-
-        canvas.drawText(batteryText, batteryX, batteryY, batteryTextPaint);
-
-        // 移除阴影避免影响其他绘制
-        batteryTextPaint.setShadowLayer(0, 0, 0, 0);
+            // 添加阴影提高可读性
+            batteryTextPaint.setShadowLayer(3, 0, 0, Color.BLACK);
+            canvas.drawText(batteryText, batteryX, batteryY, batteryTextPaint);
+            batteryTextPaint.setShadowLayer(0, 0, 0, 0);
+        }
     }
 
     /**
-     * 计算文字颜色 - 根据当前时间颜色亮度决定使用黑色或白色
+     * 确保角度在 [0,360) 范围内
      */
-    private int calculateTextColor() {
-        int bgColor = timeColor;
-        double luminance = (0.299 * Color.red(bgColor) +
-                0.587 * Color.green(bgColor) +
-                0.114 * Color.blue(bgColor)) / 255;
-        return luminance > 0.5 ? Color.BLACK : Color.WHITE;
+    private float normalizeAngle(float deg) {
+        float a = deg % 360f;
+        if (a < 0f) a += 360f;
+        return a;
     }
 
     @Override
@@ -332,7 +428,7 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
 
     @Override
     public void onDestroy() {
-        // 取消注册广播接收器
+        // 取消注册接收器
         try {
             if (settingsReceiver != null) {
                 context.unregisterReceiver(settingsReceiver);
@@ -343,12 +439,11 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
             context.unregisterReceiver(batteryReceiver);
         } catch (IllegalArgumentException ignored) {}
 
-        // 回收背景图片与缓存缩放图
+        // 回收背景图与缓存图
         if (cachedScaledBackground != null && !cachedScaledBackground.isRecycled()) {
             cachedScaledBackground.recycle();
             cachedScaledBackground = null;
         }
-
         if (backgroundBitmap != null && !backgroundBitmap.isRecycled()) {
             backgroundBitmap.recycle();
             backgroundBitmap = null;

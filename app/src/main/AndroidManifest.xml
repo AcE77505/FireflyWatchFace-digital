@@ -10,13 +10,29 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="@string/app_name"
+
             android:theme="@style/Theme.WearOS.Settings">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".ElementConfigActivity"
+            android:exported="true"
+            android:theme="@style/Theme.WearOS.Settings">
+        </activity>
+        <activity
+            android:name=".ElementEditActivity"
+            android:exported="true"
+            android:theme="@style/Theme.WearOS.Settings">
+        </activity>
+        <activity
+            android:name=".DirectionChooseActivity"
+            android:exported="true"
+            android:theme="@style/Theme.WearOS.Settings">
+        </activity>
+
         <meta-data
             android:name="com.google.android.wearable.standalone"
             android:value="true" />

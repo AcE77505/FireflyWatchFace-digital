@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="8dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/edit_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="编辑元素"
+            android:textSize="18sp"
+            android:textColor="@android:color/white"
+            android:gravity="center"
+            android:padding="8dp" />
+
+        <!-- 方向行：左标题 右数值（可点击） -->
+        <LinearLayout
+            android:id="@+id/row_direction"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="方向 (0° = 12点，顺时针为正)"
+                android:textColor="@android:color/white" />
+            <TextView
+                android:id="@+id/value_direction"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0°"
+                android:textColor="@android:color/white"
+                android:padding="8dp"
+                android:background="?android:selectableItemBackground" />
+        </LinearLayout>
+
+        <!-- 距离行 -->
+        <LinearLayout
+            android:id="@+id/row_distance"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="距离 (相对于半径)"
+                android:textColor="@android:color/white" />
+            <TextView
+                android:id="@+id/value_distance"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="90%"
+                android:textColor="@android:color/white"
+                android:padding="8dp"
+                android:background="?android:selectableItemBackground" />
+        </LinearLayout>
+
+        <!-- 大小行 -->
+        <LinearLayout
+            android:id="@+id/row_size"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="大小 (缩放)"
+                android:textColor="@android:color/white" />
+            <TextView
+                android:id="@+id/value_size"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="1.00x"
+                android:textColor="@android:color/white"
+                android:padding="8dp"
+                android:background="?android:selectableItemBackground" />
+        </LinearLayout>
+
+        <!-- 颜色 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="颜色"
+            android:textColor="@android:color/white"
+            android:layout_marginTop="8dp"/>
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+            <Button
+                android:id="@+id/button_color"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="文本颜色" />
+            <Button
+                android:id="@+id/button_ring_color"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="环颜色"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <!-- 重置按钮（短按提示，长按重置该元素所有配置）-->
+        <Button
+            android:id="@+id/button_reset"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="重置"
+            android:layout_marginTop="12dp" />
+
+    </LinearLayout>
+</ScrollView>
