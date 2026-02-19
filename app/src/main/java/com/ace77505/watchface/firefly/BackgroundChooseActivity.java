@@ -30,7 +30,7 @@ public class BackgroundChooseActivity extends Activity {
     private RecyclerView recyclerView;
     private PrefsAdapter adapter;
     private PreferencesManager prefsManager;
-    private List<String> assetImages = new ArrayList<>();
+    private final List<String> assetImages = new ArrayList<>();
 
     private static final int REQUEST_PREVIEW = 1001;
 

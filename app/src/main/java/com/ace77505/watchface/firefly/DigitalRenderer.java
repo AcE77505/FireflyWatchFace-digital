@@ -33,43 +33,43 @@ import java.time.format.DateTimeFormatter;
  */
 public class DigitalRenderer extends Renderer.CanvasRenderer {
     // 原始背景位图（直接从 assets 解码并保留）
-    private Bitmap backgroundBitmap;
+    public Bitmap backgroundBitmap;
 
     // 画笔
-    private final Paint timePaint = new Paint();
-    private final Paint datePaint = new Paint();
-    private final Paint batteryTextPaint = new Paint();
+    public final Paint timePaint = new Paint();
+    public final Paint datePaint = new Paint();
+    public final Paint batteryTextPaint = new Paint();
 
     // 电量环
-    private final BatteryRing batteryRing;
+    public final BatteryRing batteryRing;
 
     // 偏好/上下文/接收器
-    private final PreferencesManager prefsManager;
-    private final Context context;
-    private final BroadcastReceiver settingsReceiver;
+    public final PreferencesManager prefsManager;
+    public final Context context;
+    public final BroadcastReceiver settingsReceiver;
 
     // 当前颜色值与开关
-    private int timeColor = Color.BLACK;
-    private int dateColor = Color.BLACK;
-    private boolean batteryRingEnabled = true;
+    public int timeColor = Color.BLACK;
+    public int dateColor = Color.BLACK;
+    public boolean batteryRingEnabled = true;
 
     // 背景当前使用的文件名与缩放（从 prefs 读取）
-    private String backgroundFilename;
-    private int backgroundScalePercent;
+    public String backgroundFilename;
+    public int backgroundScalePercent;
 
     // 时间/日期格式
-    private final DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm");
-    private final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("EEE, MMM d");
+    public final DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm");
+    public final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("EEE, MMM d");
 
     // 复用的极坐标实例与临时数组（避免每帧分配）
-    private final PolarCoord polar = new PolarCoord(0f, 0f, 1f);
-    private final float[] coordTmp = new float[2];
+    public final PolarCoord polar = new PolarCoord(0f, 0f, 1f);
+    public final float[] coordTmp = new float[2];
 
     // 缓存电量（由广播更新）
-    private volatile float cachedBatteryLevel = 0.75f;
+    public volatile float cachedBatteryLevel = 0.75f;
 
     // 电量广播接收器（仅一次注册）
-    private final BroadcastReceiver batteryReceiver = new BroadcastReceiver() {
+    public final BroadcastReceiver batteryReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context ctx, Intent intent) {
             try {
@@ -85,25 +85,25 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
     };
 
     // 元素参数（从 prefs 读取并缓存）
-    private float timeDirDeg;
-    private float timeDistRatio;
-    private float timeSizeScale;
+    public float timeDirDeg;
+    public float timeDistRatio;
+    public float timeSizeScale;
 
-    private float dateDirDeg;
-    private float dateDistRatio;
-    private float dateSizeScale;
+    public float dateDirDeg;
+    public float dateDistRatio;
+    public float dateSizeScale;
 
-    private float batteryDirDeg;
-    private float batteryDistRatio;
-    private float batterySizeScale;
+    public float batteryDirDeg;
+    public float batteryDistRatio;
+    public float batterySizeScale;
 
     // 电池文本颜色（独立）
-    private int batteryElementColor = Color.WHITE;
+    public int batteryElementColor = Color.WHITE;
 
     // 电量环默认锁定颜色（硬编码为原始默认）
-    private static final int LOCKED_BATTERY_RING_COLOR = Color.parseColor("#FFA04A");
-    private static final float LOCKED_BATTERY_RING_INSET = 0.97f; // 97% 内缩（固定）
-    private static final float LOCKED_BATTERY_RING_SIZE_SCALE = 1.0f; // 厚度不缩放（固定）
+    public static final int LOCKED_BATTERY_RING_COLOR = Color.parseColor("#FFA04A");
+    public static final float LOCKED_BATTERY_RING_INSET = 0.97f; // 97% 内缩（固定）
+    public static final float LOCKED_BATTERY_RING_SIZE_SCALE = 1.0f; // 厚度不缩放（固定）
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     public DigitalRenderer(
@@ -179,7 +179,7 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
         }
     }
 
-    private void initPaints() {
+    public void initPaints() {
         timePaint.setAntiAlias(true);
         timePaint.setDither(true);
         timePaint.setColor(timeColor);
@@ -205,7 +205,7 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
     /**
      * 从 prefs 读取 element 参数与背景文件/缩放并加载背景原图（不在此处做大图缩放）
      */
-    private void loadElementPrefs() {
+    public void loadElementPrefs() {
         try {
             // 时间
             timeDirDeg = prefsManager.getTimeDirection();
@@ -249,7 +249,7 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
      * 从 assets 加载背景图片（原图）
      * 若失败，尝试回退到 DEFAULT_BACKGROUND_FILENAME
      */
-    private void loadBackgroundBitmap(String filename) {
+    public void loadBackgroundBitmap(String filename) {
         backgroundBitmap = null;
         if (filename == null) return;
 
@@ -305,7 +305,7 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
      *  - 当 scalePct > 100 时，裁切出原图中心区域：srcW = origW * 100 / scalePct, srcH = origH * 100 / scalePct
      *  - 将 srcRect 绘制到 dstRect(bounds)，实现“中心放大到 scalePct% 然后填满表盘”
      */
-    private void drawBackgroundDirect(Canvas canvas, Rect bounds) {
+    public void drawBackgroundDirect(Canvas canvas, Rect bounds) {
         if (backgroundBitmap == null || backgroundBitmap.isRecycled()) {
             canvas.drawColor(Color.WHITE);
             return;
@@ -349,7 +349,7 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
         }
     }
 
-    private void drawDigitalTime(Canvas canvas, PolarCoord polar, ZonedDateTime dateTime) {
+    public void drawDigitalTime(Canvas canvas, PolarCoord polar, ZonedDateTime dateTime) {
         timePaint.setColor(timeColor);
         datePaint.setColor(dateColor);
 
@@ -397,7 +397,7 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
         }
     }
 
-    private void drawBatteryText(Canvas canvas, PolarCoord polar) {
+    public void drawBatteryText(Canvas canvas, PolarCoord polar) {
         float batteryLevel = cachedBatteryLevel;
         String batteryText = Math.round(batteryLevel * 100) + "%";
 
@@ -426,7 +426,7 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
         }
     }
 
-    private float normalizeAngle(float deg) {
+    public float normalizeAngle(float deg) {
         float a = deg % 360f;
         if (a < 0f) a += 360f;
         return a;
