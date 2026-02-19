@@ -31,17 +31,20 @@
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="方向 (0° = 12点，顺时针为正)"
+                android:layout_weight="2"
+                android:text="方向"
                 android:textColor="@android:color/white" />
             <TextView
                 android:id="@+id/value_direction"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
                 android:text="0°"
                 android:textColor="@android:color/white"
                 android:padding="8dp"
-                android:background="?android:selectableItemBackground" />
+                android:paddingEnd="12dp"
+                android:background="?android:selectableItemBackground"
+                android:gravity="end|center_vertical" />
         </LinearLayout>
 
         <!-- 距离行 -->
@@ -56,17 +59,20 @@
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
+                android:layout_weight="2"
                 android:text="距离 (相对于半径)"
                 android:textColor="@android:color/white" />
             <TextView
                 android:id="@+id/value_distance"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
                 android:text="90%"
                 android:textColor="@android:color/white"
                 android:padding="8dp"
-                android:background="?android:selectableItemBackground" />
+                android:paddingEnd="12dp"
+                android:background="?android:selectableItemBackground"
+                android:gravity="end|center_vertical" />
         </LinearLayout>
 
         <!-- 大小行 -->
@@ -81,43 +87,59 @@
             <TextView
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
+                android:layout_weight="2"
                 android:text="大小 (缩放)"
                 android:textColor="@android:color/white" />
             <TextView
                 android:id="@+id/value_size"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
                 android:text="1.00x"
                 android:textColor="@android:color/white"
                 android:padding="8dp"
-                android:background="?android:selectableItemBackground" />
+                android:paddingEnd="12dp"
+                android:background="?android:selectableItemBackground"
+                android:gravity="end|center_vertical" />
         </LinearLayout>
 
-        <!-- 颜色 -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="颜色"
-            android:textColor="@android:color/white"
-            android:layout_marginTop="8dp"/>
+        <!-- 颜色行：与上面格式相同，右侧为占1/3宽度的可点击预览区域（带边框） -->
         <LinearLayout
+            android:id="@+id/row_color"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-            <Button
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:layout_marginTop="0dp">
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="2"
+                android:text="颜色"
+                android:textColor="@android:color/white" />
+
+            <!-- 外层容器作为带边框的背景 -->
+            <FrameLayout
                 android:id="@+id/button_color"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:text="文本颜色" />
-            <Button
-                android:id="@+id/button_ring_color"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="环颜色"
-                android:visibility="gone" />
+                android:foreground="?android:selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="@drawable/color_preview_bg"
+                android:padding="2dp"
+                android:layout_marginStart="4dp">
+
+                <!-- 内层填充区域：纯色背景，由代码通过 setBackgroundColor 设置 -->
+                <View
+                    android:id="@+id/color_preview_fill"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="#FFFFFFFF" />
+            </FrameLayout>
         </LinearLayout>
 
         <!-- 重置按钮（短按提示，长按重置该元素所有配置）-->
@@ -126,7 +148,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="重置"
-            android:layout_marginTop="12dp" />
+            android:layout_marginTop="12dp"
+            android:gravity="center"
+            android:textAlignment="center" />
 
     </LinearLayout>
 </ScrollView>

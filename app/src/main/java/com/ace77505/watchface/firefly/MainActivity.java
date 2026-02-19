@@ -13,15 +13,16 @@ import android.widget.CheckBox;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.wear.widget.WearableRecyclerView;
 
 public class MainActivity extends Activity {
 
-    private PreferencesManager prefsManager;
-    private WearableRecyclerView recyclerView;
-    private SettingsAdapter adapter;
+    public PreferencesManager prefsManager;
+    public WearableRecyclerView recyclerView;
+    public SettingsAdapter adapter;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -40,7 +41,7 @@ public class MainActivity extends Activity {
         recyclerView.setAdapter(adapter);
     }
 
-    private class SettingsAdapter extends WearableRecyclerView.Adapter<SettingsAdapter.ViewHolder> {
+    public class SettingsAdapter extends WearableRecyclerView.Adapter<SettingsAdapter.ViewHolder> {
 
         // 主界面仅显示：元素配置、 电量环（原有开关）
         private final String[] settings = {"元素配置", "电量环"};
@@ -53,6 +54,7 @@ public class MainActivity extends Activity {
             return TYPE_NAV;
         }
 
+        @NonNull
         @Override
         public ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
             View view = LayoutInflater.from(parent.getContext())
@@ -103,7 +105,7 @@ public class MainActivity extends Activity {
             return settings.length;
         }
 
-        class ViewHolder extends WearableRecyclerView.ViewHolder {
+        public class ViewHolder extends WearableRecyclerView.ViewHolder {
             TextView settingName;
             View colorPreview;
             CheckBox switchButton;

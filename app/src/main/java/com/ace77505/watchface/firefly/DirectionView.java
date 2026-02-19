@@ -10,9 +10,10 @@ import android.view.View;
 import android.content.Context;
 import android.util.AttributeSet;
 
+import androidx.annotation.NonNull;
+
 /**
  * DirectionView - 可交互的角度选择视图（顶级类）
- *
  * - 在中心绘制从中心到外圈的线段与箭头（箭头紧贴外圈）
  * - 用户点击屏幕时线段指向点击位置（除非点击落在被忽略的控件区域）
  * - 提供 setAngle(int) / getAngle() 方法以外部控制角度（用户语义：0=12点，顺时针为正）
@@ -23,7 +24,7 @@ public class DirectionView extends View {
     private Paint paint;
     private int angle = 0; // 用户角度，0=12点顺时针为正
     private float cx, cy, radius;
-    private Path arrowPath = new Path();
+    private final Path arrowPath = new Path();
 
     // 要忽略触摸检测的 View（通常是覆盖在本 view 上的按钮）
     private android.view.View[] ignoreViews = null;
@@ -156,7 +157,7 @@ public class DirectionView extends View {
     }
 
     @Override
-    protected void onDraw(Canvas canvas) {
+    protected void onDraw(@NonNull Canvas canvas) {
         super.onDraw(canvas);
 
         // 背景保持黑色以便于查看（如需透明可删掉）

@@ -29,25 +29,13 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 
 /**
- * DigitalRenderer - 完整版本
+ * DigitalRenderer - 完整版本（更新）
  *
- * 功能要点：
- * - 使用 PreferencesManager 中的扩展偏好（方向/距离/大小/颜色）来定位并缩放时间、日期、以及电池文字。
- * - 电量环与电池文字的颜色分离：从 prefs 读取 battery ring color (getBatteryRingColor())
- *   与 battery element color (getBatteryColor()) 并分别应用。
- * - 复用 PolarCoord 与临时数组 coordTmp 避免每帧分配。
- * - 缓存并按需缩放 backgroundBitmap。
- * - 通过注册 ACTION_BATTERY_CHANGED 的广播缓存电量（cachedBatteryLevel），避免每帧查询系统。
- * - 在 Preferences 变化时（PREF_CHANGED_ACTION）重新加载偏好并 invalidate()。
+ * 重要变更：
+ * - 电量环（BatteryRing）已被锁定为固定视觉配置。
+ *   不再使用电量元素（数显）的 distance/size/color 来配置电量环，二者彻底分离。
  *
- * 注意：
- * - 这个类依赖 PreferencesManager 已扩展的方法：
- *     getTimeDirection(), getTimeDistance(), getTimeSize()
- *     getDateDirection(), getDateDistance(), getDateSize()
- *     getBatteryDirection(), getBatteryDistance(), getBatterySize()
- *     getBatteryColor()            // 电池元素颜色（文本）
- *     getBatteryRingColor()        // 电量环颜色（环）
- *   如果 PreferencesManager 尚未包含 getBatteryRingColor()，请添加对应的键与 getter/setter。
+ * - 数字电量（数值文本）仍然受 prefs 控制（方向/距离/大小/文本颜色），但不影响环。
  */
 public class DigitalRenderer extends Renderer.CanvasRenderer {
     // 背景位图与缓存缩放图
@@ -112,9 +100,13 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
     private float batteryDistRatio;
     private float batterySizeScale;
 
-    // 颜色分离：电池文字颜色 (element) 与 电量环颜色 (ring)
+    // 电池文本颜色（独立）
     private int batteryElementColor = Color.WHITE;
-    private int batteryRingColor = Color.parseColor("#FFA04A"); // 默认
+
+    // 电量环默认锁定颜色（硬编码为原始默认）
+    private static final int LOCKED_BATTERY_RING_COLOR = Color.parseColor("#FFA04A");
+    private static final float LOCKED_BATTERY_RING_INSET = 0.97f; // 97% 内缩（固定）
+    private static final float LOCKED_BATTERY_RING_SIZE_SCALE = 1.0f; // 厚度不缩放（固定）
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     public DigitalRenderer(
@@ -151,7 +143,7 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
         dateColor = prefsManager.getDateColor();
         batteryRingEnabled = prefsManager.isBatteryRingEnabled();
 
-        // 加载元素偏好（方向/距离/大小/颜色 等），并把电量环视觉配置应用到 batteryRing 实例
+        // 加载元素偏好（方向/距离/大小/颜色 等）
         loadElementPrefs();
 
         // 注册设置变化监听：在 prefs 改变时重新读取偏好并触发 invalidate()
@@ -176,7 +168,7 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
             this.context.registerReceiver(settingsReceiver, filter);
         }
 
-        // 注册电量广播（用于缓存电量值）
+        // 注册电量广播（用于缓���电量值）
         IntentFilter batteryFilter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             this.context.registerReceiver(batteryReceiver, batteryFilter, Context.RECEIVER_NOT_EXPORTED);
@@ -235,14 +227,7 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
     }
 
     /**
-     * 从 prefs 读取并缓存元素参数；同时把可视化配置应用到 batteryRing 实例。
-     *
-     * 说明：这里将电量环颜色与电池文字颜色分离：
-     * - batteryRingColor 来自 prefsManager.getBatteryRingColor()
-     * - batteryElementColor 来自 prefsManager.getBatteryColor()
-     *
-     * 电量环的 inset 与 厚度缩放仍沿用 battery element 的 distance/size 偏好（便于快速起步）；
-     * 若你希望分别独立控制它们，可以在 PreferencesManager 再新增键并在此读取。
+     * 从 prefs 读取并缓存元素参数；注意：电量环已固定为 LOCKED_* 常量（不受 prefs 控制）
      */
     private void loadElementPrefs() {
         // 时间
@@ -255,27 +240,17 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
         dateDistRatio = prefsManager.getDateDistance();
         dateSizeScale = prefsManager.getDateSize();
 
-        // 电池（元素）
+        // 电池（数值文本）偏好（仅影响数字电量文本）
         batteryDirDeg = prefsManager.getBatteryDirection();
         batteryDistRatio = prefsManager.getBatteryDistance();
         batterySizeScale = prefsManager.getBatterySize();
-
-        // 颜色（分离）
         batteryElementColor = prefsManager.getBatteryColor();
-        // 需要 PreferencesManager 提供此方法；若不存在，请新增对应键值与 getter/setter
-        try {
-            batteryRingColor = prefsManager.getBatteryRingColor();
-        } catch (Exception e) {
-            // 兼容性：若 prefsManager 尚未实现 getBatteryRingColor(), 使用默认 ring color
-            batteryRingColor = Color.parseColor("#FFA04A");
-        }
 
-        // 将视觉参数应用到 batteryRing 实例：
-        // 这里把 batteryDistRatio 用作 insetRatio（0..1），batterySizeScale 用作厚度缩放
+        // 关键：电量环视觉配置锁定为固定值（不使用 batteryDistRatio 或 batterySizeScale）
         batteryRing.setConfig(
-                /* insetRatio = */ Math.max(0.1f, Math.min(1.0f, batteryDistRatio <= 0f ? 0.96f : batteryDistRatio)),
-                /* sizeScale = */ Math.max(0.1f, batterySizeScale),
-                /* color = */ batteryRingColor
+                /* insetRatio = */ LOCKED_BATTERY_RING_INSET,
+                /* sizeScale = */ LOCKED_BATTERY_RING_SIZE_SCALE,
+                /* color = */ LOCKED_BATTERY_RING_COLOR
         );
     }
 
@@ -287,7 +262,7 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
         float radius = Math.min(bounds.width(), bounds.height()) * 0.5f;
         polar.update(cx, cy, radius);
 
-        // 绘制背景（缓存缩���）
+        // 绘制背景（缓存缩放）
         drawBackgroundCached(canvas, bounds);
 
         // 绘制电量环（如果已启用）
@@ -343,16 +318,15 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
 
         // 绘制时间
         if (timeDistRatio <= 0f) {
-            // 距离为 0 -> 居中显示（无视方向）
+            // 居中显示
             float timeX = polar.getCenterX();
             float timeY = polar.getCenterY();
             Paint.FontMetrics timeMetrics = timePaint.getFontMetrics();
             float drawY = timeY - (timeMetrics.ascent + timeMetrics.descent) / 2f;
             canvas.drawText(timeString, timeX, drawY, timePaint);
         } else {
-            // 用户角度定义为：0 = 12 点，顺时针为正
             float userAngle = normalizeAngle(timeDirDeg);
-            float polarAngle = userAngle - 90f; // 转换为 PolarCoord 约定
+            float polarAngle = userAngle - 90f;
             polar.toCartesianRatioOut(polarAngle, timeDistRatio, coordTmp);
             float timeX = coordTmp[0];
             float timeYcenter = coordTmp[1];
@@ -404,8 +378,6 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
             float batteryYcenter = coordTmp[1];
             Paint.FontMetrics bm = batteryTextPaint.getFontMetrics();
             float batteryY = batteryYcenter - (bm.ascent + bm.descent) / 2f;
-
-            // 添加阴影提高可读性
             batteryTextPaint.setShadowLayer(3, 0, 0, Color.BLACK);
             canvas.drawText(batteryText, batteryX, batteryY, batteryTextPaint);
             batteryTextPaint.setShadowLayer(0, 0, 0, 0);
