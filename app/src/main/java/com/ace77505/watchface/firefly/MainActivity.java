@@ -43,14 +43,15 @@ public class MainActivity extends Activity {
 
     public class SettingsAdapter extends WearableRecyclerView.Adapter<SettingsAdapter.ViewHolder> {
 
-        // 主界面仅显示：元素配置、 电量环（原有开关）
-        private final String[] settings = {"元素配置", "电量环"};
+        // 主界面显示：元素配置、 背景设置、 电量环（开关）
+        private final String[] settings = {"元素配置", "背景设置", "电量环"};
         private final int TYPE_NAV = 0;
         private final int TYPE_SWITCH = 1;
 
         @Override
         public int getItemViewType(int position) {
-            if (position == 1) return TYPE_SWITCH;
+            // 电量环仍为开关（position 2）
+            if (position == 2) return TYPE_SWITCH;
             return TYPE_NAV;
         }
 
@@ -94,6 +95,10 @@ public class MainActivity extends Activity {
                     if (pos == 0) {
                         // 进入元素配置二级界面
                         Intent intent = new Intent(MainActivity.this, ElementConfigActivity.class);
+                        startActivity(intent);
+                    } else if (pos == 1) {
+                        // 进入背景选择界面
+                        Intent intent = new Intent(MainActivity.this, BackgroundChooseActivity.class);
                         startActivity(intent);
                     }
                 });

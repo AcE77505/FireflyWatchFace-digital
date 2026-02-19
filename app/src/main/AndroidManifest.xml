@@ -32,6 +32,16 @@
             android:exported="true"
             android:theme="@style/Theme.WearOS.Settings">
         </activity>
+        <activity
+            android:name=".BackgroundChooseActivity"
+            android:exported="true"
+            android:theme="@style/Theme.WearOS.Settings">
+        </activity>
+        <activity
+            android:name=".BackgroundPreviewActivity"
+            android:exported="true"
+            android:theme="@style/Theme.WearOS.Settings">
+        </activity>
 
         <meta-data
             android:name="com.google.android.wearable.standalone"

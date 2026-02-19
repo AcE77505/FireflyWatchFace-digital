@@ -29,20 +29,11 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 
 /**
- * DigitalRenderer - 完整版本（更新）
- *
- * 重要变更：
- * - 电量环（BatteryRing）已被锁定为固定视觉配置。
- *   不再使用电量元素（数显）的 distance/size/color 来配置电量环，二者彻底分离。
- *
- * - 数字电量（数值文本）仍然受 prefs 控制（方向/距离/大小/文本颜色），但不影响环。
+ * DigitalRenderer - 使用 srcRect->dstRect 绘制背景以避免中间大图分配（更稳健）
  */
 public class DigitalRenderer extends Renderer.CanvasRenderer {
-    // 背景位图与缓存缩放图
+    // 原始背景位图（直接从 assets 解码并保留）
     private Bitmap backgroundBitmap;
-    private Bitmap cachedScaledBackground = null;
-    private int cachedBackgroundWidth = -1;
-    private int cachedBackgroundHeight = -1;
 
     // 画笔
     private final Paint timePaint = new Paint();
@@ -62,6 +53,10 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
     private int dateColor = Color.BLACK;
     private boolean batteryRingEnabled = true;
 
+    // 背景当前使用的文件名与缩放（从 prefs 读取）
+    private String backgroundFilename;
+    private int backgroundScalePercent;
+
     // 时间/日期格式
     private final DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm");
     private final DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("EEE, MMM d");
@@ -77,13 +72,15 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
     private final BroadcastReceiver batteryReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context ctx, Intent intent) {
-            if (Intent.ACTION_BATTERY_CHANGED.equals(intent.getAction())) {
-                int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
-                int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
-                if (level >= 0 && scale > 0) {
-                    cachedBatteryLevel = (float) level / (float) scale;
+            try {
+                if (Intent.ACTION_BATTERY_CHANGED.equals(intent.getAction())) {
+                    int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+                    int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+                    if (level >= 0 && scale > 0) {
+                        cachedBatteryLevel = (float) level / (float) scale;
+                    }
                 }
-            }
+            } catch (Exception ignored) { }
         }
     };
 
@@ -126,59 +123,63 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
 
         this.context = context.getApplicationContext();
 
-        // 初始化 prefs 管理器
         prefsManager = new PreferencesManager(this.context);
 
-        // 初始化画笔
         initPaints();
 
-        // 加载背景图（优先使用 openFd）
-        loadBackgroundBitmap(this.context);
-
-        // 初始化电量环实例
         this.batteryRing = new BatteryRing(this.context);
 
-        // 加载基础设置（颜色、开关）
-        timeColor = prefsManager.getTimeColor();
-        dateColor = prefsManager.getDateColor();
-        batteryRingEnabled = prefsManager.isBatteryRingEnabled();
+        try {
+            timeColor = prefsManager.getTimeColor();
+            dateColor = prefsManager.getDateColor();
+            batteryRingEnabled = prefsManager.isBatteryRingEnabled();
+            loadElementPrefs();
+        } catch (Throwable t) {
+            t.printStackTrace();
+            backgroundBitmap = null;
+        }
 
-        // 加载元素偏好（方向/距离/大小/颜色 等）
-        loadElementPrefs();
-
-        // 注册设置变化监听：在 prefs 改变时重新读取偏好并触发 invalidate()
         settingsReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context ctx, Intent intent) {
-                if (PreferencesManager.PREF_CHANGED_ACTION.equals(intent.getAction())) {
-                    // 重新加载颜色、开关、元素偏好
-                    timeColor = prefsManager.getTimeColor();
-                    dateColor = prefsManager.getDateColor();
-                    batteryRingEnabled = prefsManager.isBatteryRingEnabled();
-                    loadElementPrefs();
-                    invalidate(); // 请求重绘
+                try {
+                    if (PreferencesManager.PREF_CHANGED_ACTION.equals(intent.getAction())) {
+                        timeColor = prefsManager.getTimeColor();
+                        dateColor = prefsManager.getDateColor();
+                        batteryRingEnabled = prefsManager.isBatteryRingEnabled();
+                        loadElementPrefs();
+                        invalidate();
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
                 }
             }
         };
 
         IntentFilter filter = new IntentFilter(PreferencesManager.PREF_CHANGED_ACTION);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            this.context.registerReceiver(settingsReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            this.context.registerReceiver(settingsReceiver, filter);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                this.context.registerReceiver(settingsReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                this.context.registerReceiver(settingsReceiver, filter);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
 
-        // 注册电量广播（用于缓���电量值）
         IntentFilter batteryFilter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            this.context.registerReceiver(batteryReceiver, batteryFilter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            this.context.registerReceiver(batteryReceiver, batteryFilter);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                this.context.registerReceiver(batteryReceiver, batteryFilter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                this.context.registerReceiver(batteryReceiver, batteryFilter);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
     private void initPaints() {
-        // 时间画笔
         timePaint.setAntiAlias(true);
         timePaint.setDither(true);
         timePaint.setColor(timeColor);
@@ -186,7 +187,6 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
         timePaint.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         timePaint.setStyle(Paint.Style.FILL);
 
-        // 日期画笔
         datePaint.setAntiAlias(true);
         datePaint.setDither(true);
         datePaint.setColor(dateColor);
@@ -194,7 +194,6 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
         datePaint.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
         datePaint.setStyle(Paint.Style.FILL);
 
-        // 数字电池画笔
         batteryTextPaint.setAntiAlias(true);
         batteryTextPaint.setDither(true);
         batteryTextPaint.setColor(batteryElementColor);
@@ -204,121 +203,166 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
     }
 
     /**
-     * 从 assets 加载背景图片（openFd 优先）
+     * 从 prefs 读取 element 参数与背景文件/缩放并加载背景原图（不在此处做大图缩放）
      */
-    private void loadBackgroundBitmap(Context context) {
-        final String assetName = "119655138_sq.webp";
+    private void loadElementPrefs() {
+        try {
+            // 时间
+            timeDirDeg = prefsManager.getTimeDirection();
+            timeDistRatio = prefsManager.getTimeDistance();
+            timeSizeScale = prefsManager.getTimeSize();
+
+            // 日期
+            dateDirDeg = prefsManager.getDateDirection();
+            dateDistRatio = prefsManager.getDateDistance();
+            dateSizeScale = prefsManager.getDateSize();
+
+            // 电池
+            batteryDirDeg = prefsManager.getBatteryDirection();
+            batteryDistRatio = prefsManager.getBatteryDistance();
+            batterySizeScale = prefsManager.getBatterySize();
+            batteryElementColor = prefsManager.getBatteryColor();
+
+            batteryRing.setConfig(
+                    LOCKED_BATTERY_RING_INSET,
+                    LOCKED_BATTERY_RING_SIZE_SCALE,
+                    LOCKED_BATTERY_RING_COLOR
+            );
+
+            String filename = prefsManager.getBackgroundFilename();
+            int scalePct = prefsManager.getBackgroundScale(filename);
+
+            backgroundFilename = filename;
+            backgroundScalePercent = scalePct;
+
+            // 直接加载原始背景位图（small memory), 解码失败会回退到默认或 null
+            loadBackgroundBitmap(filename);
+        } catch (Exception e) {
+            e.printStackTrace();
+            backgroundBitmap = null;
+            backgroundFilename = null;
+            backgroundScalePercent = PreferencesManager.DEFAULT_BACKGROUND_SCALE;
+        }
+    }
+
+    /**
+     * 从 assets 加载背景图片（原图）
+     * 若失败，尝试回退到 DEFAULT_BACKGROUND_FILENAME
+     */
+    private void loadBackgroundBitmap(String filename) {
         backgroundBitmap = null;
+        if (filename == null) return;
 
         try {
-            try (AssetFileDescriptor afd = context.getAssets().openFd(assetName)) {
-                try (InputStream is = afd.createInputStream()) {
-                    backgroundBitmap = BitmapFactory.decodeStream(is);
-                }
-            }
-        } catch (IOException e) {
-            try (InputStream is = context.getAssets().open(assetName)) {
+            // Prefer open() which works for compressed assets; openFd may fail for compressed assets
+            try (InputStream is = context.getAssets().open(filename)) {
                 backgroundBitmap = BitmapFactory.decodeStream(is);
-            } catch (IOException ex) {
-                ex.printStackTrace();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            // fallback to default if not same
+            if (!PreferencesManager.DEFAULT_BACKGROUND_FILENAME.equals(filename)) {
+                try (InputStream is2 = context.getAssets().open(PreferencesManager.DEFAULT_BACKGROUND_FILENAME)) {
+                    backgroundBitmap = BitmapFactory.decodeStream(is2);
+                    backgroundFilename = PreferencesManager.DEFAULT_BACKGROUND_FILENAME;
+                    backgroundScalePercent = prefsManager.getBackgroundScale(backgroundFilename);
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                    backgroundBitmap = null;
+                }
+            } else {
                 backgroundBitmap = null;
             }
         }
     }
 
-    /**
-     * 从 prefs 读取并缓存元素参数；注意：电量环已固定为 LOCKED_* 常量（不受 prefs 控制）
-     */
-    private void loadElementPrefs() {
-        // 时间
-        timeDirDeg = prefsManager.getTimeDirection();
-        timeDistRatio = prefsManager.getTimeDistance();
-        timeSizeScale = prefsManager.getTimeSize();
-
-        // 日期
-        dateDirDeg = prefsManager.getDateDirection();
-        dateDistRatio = prefsManager.getDateDistance();
-        dateSizeScale = prefsManager.getDateSize();
-
-        // 电池（数值文本）偏好（仅影响数字电量文本）
-        batteryDirDeg = prefsManager.getBatteryDirection();
-        batteryDistRatio = prefsManager.getBatteryDistance();
-        batterySizeScale = prefsManager.getBatterySize();
-        batteryElementColor = prefsManager.getBatteryColor();
-
-        // 关键：电量环视觉配置锁定为固定值（不使用 batteryDistRatio 或 batterySizeScale）
-        batteryRing.setConfig(
-                /* insetRatio = */ LOCKED_BATTERY_RING_INSET,
-                /* sizeScale = */ LOCKED_BATTERY_RING_SIZE_SCALE,
-                /* color = */ LOCKED_BATTERY_RING_COLOR
-        );
-    }
-
     @Override
     public void render(@NonNull Canvas canvas, @NonNull Rect bounds, @NonNull ZonedDateTime dateTime) {
-        // 更新复用 polar
-        float cx = bounds.exactCenterX();
-        float cy = bounds.exactCenterY();
-        float radius = Math.min(bounds.width(), bounds.height()) * 0.5f;
-        polar.update(cx, cy, radius);
+        try {
+            float cx = bounds.exactCenterX();
+            float cy = bounds.exactCenterY();
+            float radius = Math.min(bounds.width(), bounds.height()) * 0.5f;
+            polar.update(cx, cy, radius);
 
-        // 绘制背景（缓存缩放）
-        drawBackgroundCached(canvas, bounds);
+            drawBackgroundDirect(canvas, bounds);
 
-        // 绘制电量环（如果已启用）
-        if (batteryRingEnabled) {
-            batteryRing.draw(canvas, polar, coordTmp, cachedBatteryLevel);
-        }
-
-        // 绘制时间/日期（使用 element prefs）
-        drawDigitalTime(canvas, polar, dateTime);
-
-        // 绘制电池文本（使用 element prefs）
-        drawBatteryText(canvas, polar);
-    }
-
-    private void drawBackgroundCached(Canvas canvas, Rect bounds) {
-        if (backgroundBitmap != null && !backgroundBitmap.isRecycled()) {
-            if (cachedScaledBackground == null ||
-                    cachedBackgroundWidth != bounds.width() ||
-                    cachedBackgroundHeight != bounds.height()) {
-
-                if (cachedScaledBackground != null && !cachedScaledBackground.isRecycled()) {
-                    cachedScaledBackground.recycle();
-                }
-                cachedScaledBackground = Bitmap.createScaledBitmap(
-                        backgroundBitmap, bounds.width(), bounds.height(), true
-                );
-                cachedBackgroundWidth = bounds.width();
-                cachedBackgroundHeight = bounds.height();
+            if (batteryRingEnabled) {
+                batteryRing.draw(canvas, polar, coordTmp, cachedBatteryLevel);
             }
-            canvas.drawBitmap(cachedScaledBackground, bounds.left, bounds.top, null);
-        } else {
-            // 备用白底
+
+            drawDigitalTime(canvas, polar, dateTime);
+            drawBatteryText(canvas, polar);
+        } catch (Exception e) {
+            e.printStackTrace();
             canvas.drawColor(Color.WHITE);
         }
     }
 
+    /**
+     * 使用 bitmap 的 srcRect -> dstRect 绘制背景（以图片中心为基准裁切），避免创建大中间 Bitmap
+     * 逻辑：
+     *  - scalePct >= 100（我们保证用户输入范围），若 scalePct == 100 则使用整张图片 src
+     *  - 当 scalePct > 100 时，裁切出原图中心区域：srcW = origW * 100 / scalePct, srcH = origH * 100 / scalePct
+     *  - 将 srcRect 绘制到 dstRect(bounds)，实现“中心放大到 scalePct% 然后填满表盘”
+     */
+    private void drawBackgroundDirect(Canvas canvas, Rect bounds) {
+        if (backgroundBitmap == null || backgroundBitmap.isRecycled()) {
+            canvas.drawColor(Color.WHITE);
+            return;
+        }
+
+        try {
+            int bw = backgroundBitmap.getWidth();
+            int bh = backgroundBitmap.getHeight();
+            if (bw <= 0 || bh <= 0) {
+                canvas.drawColor(Color.WHITE);
+                return;
+            }
+
+            int pct = Math.max(1, backgroundScalePercent); // defensive, though prefs constrain to >=100
+            // 当 pct == 100 时 srcW = bw, srcH = bh -> 映射整图到 bounds
+            int srcW = Math.max(1, bw * 100 / pct);
+            int srcH = Math.max(1, bh * 100 / pct);
+
+            // 防止 src 大于原图（在极端数值或 pct<100 情况）
+            if (srcW > bw) srcW = bw;
+            if (srcH > bh) srcH = bh;
+
+            int left = Math.max(0, (bw - srcW) / 2);
+            int top = Math.max(0, (bh - srcH) / 2);
+
+            Rect src = new Rect(left, top, left + srcW, top + srcH);
+            Rect dst = new Rect(bounds.left, bounds.top, bounds.right, bounds.bottom);
+
+            // Draw bitmap section -> stretch to dest bounds (efficient, no huge intermediate allocation)
+            canvas.drawBitmap(backgroundBitmap, src, dst, null);
+        } catch (Exception e) {
+            e.printStackTrace();
+            // fallback to draw whole bitmap stretched (最保险)
+            try {
+                Rect dst = new Rect(bounds.left, bounds.top, bounds.right, bounds.bottom);
+                canvas.drawBitmap(backgroundBitmap, null, dst, null);
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                canvas.drawColor(Color.WHITE);
+            }
+        }
+    }
+
     private void drawDigitalTime(Canvas canvas, PolarCoord polar, ZonedDateTime dateTime) {
-        // 更新画笔颜色
         timePaint.setColor(timeColor);
         datePaint.setColor(dateColor);
 
-        // 基础字体大小
         float baseTimeTextSize = polar.getMaxRadius() * 2f * 0.12f;
         float baseDateTextSize = polar.getMaxRadius() * 2f * 0.05f;
 
-        // 应用用户配置的大小比例
         timePaint.setTextSize(baseTimeTextSize * timeSizeScale);
         datePaint.setTextSize(baseDateTextSize * dateSizeScale);
 
-        // 格式化文字
         String timeString = dateTime.format(timeFormatter);
         String dateString = dateTime.format(dateFormatter);
 
-        // 绘制时间
         if (timeDistRatio <= 0f) {
-            // 居中显示
             float timeX = polar.getCenterX();
             float timeY = polar.getCenterY();
             Paint.FontMetrics timeMetrics = timePaint.getFontMetrics();
@@ -335,7 +379,6 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
             canvas.drawText(timeString, timeX, timeY, timePaint);
         }
 
-        // 绘制日期
         if (dateDistRatio <= 0f) {
             float dateX = polar.getCenterX();
             float dateY = polar.getCenterY();
@@ -361,7 +404,6 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
         float baseBatteryTextSize = polar.getMaxRadius() * 2f * 0.035f;
         batteryTextPaint.setTextSize(baseBatteryTextSize * batterySizeScale);
 
-        // 使用独立的电池元素颜色（文本）
         batteryTextPaint.setColor(batteryElementColor);
 
         if (batteryDistRatio <= 0f) {
@@ -384,9 +426,6 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
         }
     }
 
-    /**
-     * 确保角度在 [0,360) 范围内
-     */
     private float normalizeAngle(float deg) {
         float a = deg % 360f;
         if (a < 0f) a += 360f;
@@ -400,7 +439,6 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
 
     @Override
     public void onDestroy() {
-        // 取消注册接收器
         try {
             if (settingsReceiver != null) {
                 context.unregisterReceiver(settingsReceiver);
@@ -411,15 +449,12 @@ public class DigitalRenderer extends Renderer.CanvasRenderer {
             context.unregisterReceiver(batteryReceiver);
         } catch (IllegalArgumentException ignored) {}
 
-        // 回收背景图与缓存图
-        if (cachedScaledBackground != null && !cachedScaledBackground.isRecycled()) {
-            cachedScaledBackground.recycle();
-            cachedScaledBackground = null;
-        }
-        if (backgroundBitmap != null && !backgroundBitmap.isRecycled()) {
-            backgroundBitmap.recycle();
-            backgroundBitmap = null;
-        }
+        try {
+            if (backgroundBitmap != null && !backgroundBitmap.isRecycled()) {
+                backgroundBitmap.recycle();
+                backgroundBitmap = null;
+            }
+        } catch (Exception ignored) {}
 
         super.onDestroy();
     }
